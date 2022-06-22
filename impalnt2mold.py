@@ -3,7 +3,8 @@ from pickletools import read_unicodestring1
 import pyvista
 import numpy as np
 from scipy import linalg as LA
-from utils_trimesh import mlab2pv, split_surf,pv2mlab,generate_cut_surf, pyvistaToTrimeshFaces, generate_cylinder,reduce_edge_distance
+from utils_trimesh import mlab2pv, split_surf,pv2mlab,\
+    generate_cut_surf, pyvistaToTrimeshFaces, generate_cylinder,reduce_edge_distance, generate_top_surf_skirt
 import pymeshlab
 
 class Reorient(object):
@@ -67,91 +68,52 @@ class Reorient(object):
 
         return implant, box
 
-    
+
 if __name__ == '__main__':
-    # implant = pyvista.read('./data/test.stl')
-    # reorientor = Reorient()
-    # implant, box = reorientor(implant)
 
-    # bottom_surf = split_surf(implant, mode='bottom')  # find the top surface of implant
-    # edges = bottom_surf.extract_feature_edges(30).plot()
-    
-    top_surf = pyvista.read('./data/reoriented_implant_top.stl')
+    injection_hole_diameter = 10
+    thickness = 5
     bottom_surf = pyvista.read('./data/reoriented_implant_bottom.stl')
-    # edges = bottom_surf.extract_feature_edges(30)
-    pl = pyvista.Plotter()
-    # pl.add_mesh(top_surf)
-    # pl.show()
-    # exit()
+    # top_origin_surf = pyvista.read('./data/reoriented_implant_top.stl')
+    top_surf = generate_top_surf_skirt(bottom_surf, thickness)
 
-    # pl.add_mesh(pyvista.PolyData(edges),color='blue')
+    pl = pyvista.Plotter()
     
-    centroid= generate_cylinder(top_surf)
+
     implant = top_surf.merge(bottom_surf)
     reorientor = Reorient()
     implant, box = reorientor(implant)
 
-    top_surf = reorientor.transform(top_surf)
     bottom_surf = reorientor.transform(bottom_surf)
-    edges = bottom_surf.extract_feature_edges(30)
-
-    pl.add_mesh(implant)
-    
-    centroid[0] += 6
-    # inject_hole = pyvista.Cylinder(centroid, radius = 2.1, height = 22).triangulate()
-    # inject_hole = pyvista.Cone(centroid, radius =6, direction = (-1,0,0),height = 30, resolution = 40).triangulate()
-    length = 40
-    width = 13
-    height = 13
-    x_min = centroid[0]-length/2.0
-    x_max = centroid[0]+length/2.0
-    y_min = centroid[1]-width/2.0
-    y_max = centroid[1]+width/2.0
-    z_min = implant.bounds[-2] - 0.2
-    z_max = implant.bounds[-2] + height
-    inject_hole = pyvista.Box((x_min,x_max,y_min,y_max,z_min,z_max)).triangulate()
-    pl.add_mesh(inject_hole)
-
-    meshset = pymeshlab.MeshSet()
-    
-    inject_hole = pymeshlab.Mesh(vertex_matrix=inject_hole.points, face_list_of_indices=pyvistaToTrimeshFaces(inject_hole.faces), v_normals_matrix=inject_hole.point_normals, f_normals_matrix=inject_hole.face_normals)
-    meshset.add_mesh(inject_hole)
-
-    implant = pymeshlab.Mesh(vertex_matrix=implant.points, face_list_of_indices=pyvistaToTrimeshFaces(implant.faces), v_normals_matrix=implant.point_normals, f_normals_matrix=implant.face_normals)
-    meshset.add_mesh(implant)
-
-    meshset.mesh_boolean_difference(first_mesh=0, second_mesh=1)
-    # meshset.save_current_mesh('inject_hole.stl')
-    # del meshset
-    
-    inject_hole = mlab2pv(meshset.current_mesh())
-    inject_hole = inject_hole.connectivity(largest=True)
-    inject_hole.plot()
-    # idxes = np.arange(len(inject_hole.points))[inject_hole.active_scalars > 0]
-    # inject_hole ,_= inject_hole.remove_points(idxes)
-    # inject_hole = pyvista.PolyData(largest_points)
-    # pl.add_mesh(top_surf)
-    # pl.add_mesh(pyvista.PolyData(centroid),color='red')
-    # pl.add_mesh(inject_hole)
-    # pl.add_mesh(bottom_surf)
+    top_surf = reorientor.transform(top_surf)
+    # pl.add_mesh(top_surf,'b')
+    # pl.add_mesh(top_origin_surf)
     # pl.show()
+ 
+    bottom_surf_points_npy = np.asarray(bottom_surf.points * 1.0)
+    bottom_surf_points_npy[:,-1] = 0 # 
+    bottom_surf_2d = pyvista.PolyData(bottom_surf_points_npy, bottom_surf.faces) 
+    edges = bottom_surf_2d.extract_feature_edges()
+    
 
-
+    # pl.add_mesh(implant)
+    
 
     #find the largest edge
-    edge_points_bottom = edges.connectivity(largest=True)
-    largest_points = edge_points_bottom.points[edge_points_bottom.active_scalars==0]
+    edge_points_bottom_2d = edges.connectivity(largest=True)
+    largest_points = edge_points_bottom_2d.points[edge_points_bottom_2d.active_scalars==0]
+    indexes = [bottom_surf_2d.find_closest_point(edge_pt) \
+                for edge_pt in np.asarray(largest_points) ]
+    edge_points = bottom_surf.points[indexes]
 
-    cut_box = reduce_edge_distance(box, largest_points, s = 1.4)
+
+    cut_box = reduce_edge_distance(box, edge_points, s = 1.4)
     cut_box.flip_normals()
-    pl.add_mesh(cut_box)
-    pl.show()
-    # pl.add_mesh(cutted_box)
-    # pl.add_mesh(box)
+
+
+    cut_plane = generate_cut_surf(edge_points) # generate cut surface
+    # pl.add_mesh(cut_plane, color='b')
     # pl.show()
-
-
-    cut_plane = generate_cut_surf(largest_points) # generate cut surface
     bottom_mold = cut_plane.merge(bottom_surf)
     bottom_mold = bottom_mold.extrude([0,0,70],capping=True)
     top_mold = cut_plane.merge(top_surf)
@@ -163,26 +125,46 @@ if __name__ == '__main__':
     # Convert to Meshlab
     ms = pymeshlab.MeshSet()
     # mesh[0]
-    # ms.load_new_mesh('./data/box.stl')
-    cutted_box_mlab = pymeshlab.Mesh(vertex_matrix=cut_box.points, face_list_of_indices=pyvistaToTrimeshFaces(cut_box.faces), v_normals_matrix=cut_box.point_normals, f_normals_matrix=cut_box.face_normals)
+    cutted_box_mlab = pymeshlab.Mesh(vertex_matrix=cut_box.points, 
+                            face_list_of_indices=pyvistaToTrimeshFaces(cut_box.faces), 
+                            v_normals_matrix=cut_box.point_normals, 
+                            f_normals_matrix=cut_box.face_normals)
     ms.add_mesh(cutted_box_mlab)
     # mesh[1]
     top_mold_mlab = pymeshlab.Mesh(vertex_matrix=top_mold.points, face_list_of_indices=pyvistaToTrimeshFaces(top_mold.faces), v_normals_matrix=top_mold.point_normals, f_normals_matrix=top_mold.face_normals)
     # mesh[2]
     bottom_mold_mlab = pymeshlab.Mesh(vertex_matrix=bottom_mold.points, face_list_of_indices=pyvistaToTrimeshFaces(bottom_mold.faces), v_normals_matrix=bottom_mold.point_normals, f_normals_matrix=bottom_mold.face_normals)
-    # mesh[3]
-    injection_hole_mlab = pymeshlab.Mesh(vertex_matrix=inject_hole.points, face_list_of_indices=pyvistaToTrimeshFaces(inject_hole.faces), v_normals_matrix=inject_hole.point_normals, f_normals_matrix=inject_hole.face_normals)
+ 
     ms.add_mesh(top_mold_mlab)
     ms.add_mesh(bottom_mold_mlab)
-    ms.add_mesh(injection_hole_mlab)
 
     # Boolean operation using Meshlab
+    # mesh[3]
     ms.mesh_boolean_difference(first_mesh=0, second_mesh=1)
-    ms.mesh_boolean_difference(first_mesh = 4, second_mesh = 3)
+
     ms.save_current_mesh('mold_top.stl')
+    # mesh[4]
     ms.mesh_boolean_difference(first_mesh=0, second_mesh=2)
-    # ms.mesh_boolean_difference(first_mesh = 6, second_mesh = 3)
+
+    bottom_surf_lower = bottom_surf.extrude([0,0, -1 * injection_hole_diameter/2.0], capping = True)
+    # bottom_surf_lower.flip_normals()
+    bottom_surf_lower.compute_normals(inplace=True)
+    bottom_surf_lower_mlab = pymeshlab.Mesh(vertex_matrix=bottom_surf_lower.points, 
+                                face_list_of_indices=pyvistaToTrimeshFaces(bottom_surf_lower.faces), 
+                                v_normals_matrix=bottom_surf_lower.point_normals, 
+                                f_normals_matrix=bottom_surf_lower.face_normals)
+    # mesh[5]
+    ms.add_mesh(bottom_surf_lower_mlab)
+    
+    ms.mesh_boolean_difference(first_mesh = 4, second_mesh = 5)
+    # pl.add_mesh(mlab2pv(ms[4]))
+    mlab2pv(ms[4]).plot_normals()
+    mlab2pv(ms[5]).plot_normals()
+    # pl.add_mesh(mlab2pv(ms[5]),color = 'b')
+    # pl.add_mesh(mlab2pv(ms[6]))
+    # pl.show()
     ms.save_current_mesh('mold_bottom.stl')
+    
 
     # remove the end points and visualize
     # pl = pyvista.Plotter()
