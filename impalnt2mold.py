@@ -158,8 +158,8 @@ if __name__ == '__main__':
     
     ms.mesh_boolean_difference(first_mesh = 4, second_mesh = 5)
     # pl.add_mesh(mlab2pv(ms[4]))
-    mlab2pv(ms[4]).plot_normals()
-    mlab2pv(ms[5]).plot_normals()
+    # mlab2pv(ms[4]).plot_normals()
+    # mlab2pv(ms[5]).plot_normals()
     # pl.add_mesh(mlab2pv(ms[5]),color = 'b')
     # pl.add_mesh(mlab2pv(ms[6]))
     # pl.show()
