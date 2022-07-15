@@ -72,13 +72,12 @@ class Reorient(object):
 if __name__ == '__main__':
 
     injection_hole_diameter = 10
-    thickness = 5
-    bottom_surf = pyvista.read('./data/reoriented_implant_bottom.stl')
+    thickness = 6
+    bottom_surf = pyvista.read('./data/skull_4_surface.stl')
     # top_origin_surf = pyvista.read('./data/reoriented_implant_top.stl')
     top_surf = generate_top_surf_skirt(bottom_surf, thickness)
 
     pl = pyvista.Plotter()
-    
 
     implant = top_surf.merge(bottom_surf)
     reorientor = Reorient()
